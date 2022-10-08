@@ -1,0 +1,23 @@
+name: Build and test
+on: [push]
+jobs:
+  qemu-user-package:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux/archlinux:latest
+      options: --privileged
+    steps:
+      - name: Add ArchLinux CN source
+        run: echo -e '[archlinuxcn]\nServer = https://repo.archlinuxcn.org/$arch' >> /etc/pacman.conf
+      - name: Install ArchLinux CN keyring
+        run: pacman-key --init && pacman -Syu --noconfirm archlinuxcn-keyring
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm devtools-riscv64
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: work around https://github.com/actions/checkout/issues/760
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Archieve project
+        run: git archive --prefix=spidermonkey/ --format=tar HEAD > pkgbuild/spidermonkey.tar
+      - name: QEMU build
+        run: cd pkgbuild && extra-riscv64-build
