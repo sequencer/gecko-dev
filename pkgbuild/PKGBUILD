@@ -4,7 +4,7 @@ pkgname=js91
 pkgver=91.13.0
 pkgrel=1
 pkgdesc="JavaScript interpreter and libraries - Version 91"
-arch=(x86_64)
+arch=(riscv64)
 url="https://spidermonkey.dev/"
 license=(MPL)
 depends=(gcc-libs readline zlib sh)
@@ -12,9 +12,13 @@ makedepends=(zip autoconf2.13 python-setuptools python-psutil rustup llvm clang 
 checkdepends=(mercurial git)
 options=(!lto debug)
 _relver=${pkgver}esr
-source=(https://archive.mozilla.org/pub/firefox/releases/$_relver/source/firefox-$_relver.source.tar.xz{,.asc})
+source=(https://archive.mozilla.org/pub/firefox/releases/$_relver/source/firefox-$_relver.source.tar.xz{,.asc}
+        tests-skip-some-tests-on-rv64.patch
+        Disable-floating-pointcontraction.patch)
 sha256sums=('53be2bcde0b5ee3ec106bd8ba06b8ae95e7d489c484e881dfbe5360e4c920762'
-            'SKIP')
+            'SKIP'
+            '1518e134fd5448d48f960bedbe7db061d5a8b368d43db2cac7f4b1adf094c748'
+            '5bf12327f40ba27b0d98cd8dbc14f79833c7f251ffc6d455cbc2a30a1d5b9f15')
 validpgpkeys=('14F26682D0916CDD81E37B6D61B7B526D98F0353') # Mozilla Software Releases <release@mozilla.com>
 
 # Make sure the duplication between bin and lib is found
@@ -28,6 +32,11 @@ prepare() {
   mkdir mozbuild
   cd firefox-$pkgver
 
+  patch -Np1 -i "../tests-skip-some-tests-on-rv64.patch"
+ 
+ #https://bugzilla.mozilla.org/show_bug.cgi?id=1755531
+  patch -Np1 -i  "../Disable-floating-pointcontraction.patch"
+
   cat >../mozconfig <<END
 ac_add_options --enable-application=js
 mk_add_options MOZ_OBJDIR=${PWD@Q}/obj
@@ -37,12 +46,13 @@ ac_add_options --enable-release
 ac_add_options --enable-hardening
 ac_add_options --enable-optimize
 ac_add_options --enable-rust-simd
-ac_add_options --enable-linker=lld
+ac_add_options --enable-linker=bfd
 ac_add_options --disable-bootstrap
 ac_add_options --disable-debug
 ac_add_options --disable-debug-symbols
 ac_add_options --disable-jemalloc
 ac_add_options --disable-strip
+ac_add_options --disable-jit
 
 # System libraries
 ac_add_options --with-system-zlib
@@ -63,41 +73,10 @@ build() {
   export MOZBUILD_STATE_PATH="$srcdir/mozbuild"
   export MACH_USE_SYSTEM_PYTHON=1
 
-  # Do 3-tier PGO
-  echo "Building instrumented JS..."
+  ## Do 3-tier PGO
+  #echo "Building instrumented JS..."
   cat >.mozconfig ../mozconfig - <<END
-ac_add_options --enable-profile-generate=cross
-END
-  ./mach build
-
-  echo "Profiling instrumented JS..."
-  (
-    local js="$PWD/obj/dist/bin/js"
-    export LLVM_PROFILE_FILE="$PWD/js-%p-%m.profraw"
-
-    cd js/src/octane
-    "$js" run.js
-
-    cd ../../../third_party/webkit/PerformanceTests/ARES-6
-    "$js" cli.js
-
-    cd ../SunSpider/sunspider-0.9.1
-    "$js" sunspider-standalone-driver.js
-  )
-
-  llvm-profdata merge -o merged.profdata *.profraw
-
-  stat -c "Profile data found (%s bytes)" merged.profdata
-  test -s merged.profdata
-
-  echo "Removing instrumented JS..."
-  ./mach clobber
-
-  echo "Building optimized JS..."
-  cat >.mozconfig ../mozconfig - <<END
-ac_add_options --enable-lto=cross
-ac_add_options --enable-profile-use=cross
-ac_add_options --with-pgo-profile-path=${PWD@Q}/merged.profdata
+#ac_add_options --enable-profile-generate=cross
 END
   ./mach build
 }
